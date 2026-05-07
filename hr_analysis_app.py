@@ -345,7 +345,7 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name="Sheet1") -> bytes:
 # ── UI ──
 # ─────────────────────────────────────────────
 st.title("심박수 & 기온 분석 대시보드")
-st.markdown("#####  과제명: 시민참여형 적응 최적화를 위한 시민 〮사회 〮경제 〮환경 데이터 분석을 통한 정책평가기술 개발")
+st.markdown("#####  시민참여형 적응 최적화를 위한 시민/사회/경제/환경 데이터 분석을 통한 정책평가기술 개발")
 
 st.markdown("#### 📂 데이터 업로드")
 uploaded_file = st.file_uploader(
