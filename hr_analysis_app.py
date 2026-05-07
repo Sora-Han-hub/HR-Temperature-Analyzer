@@ -18,7 +18,6 @@ from datetime import time as dt_time
 # ─────────────────────────────────────────────
 st.set_page_config(
     page_title="HR & Temperature Analyzer",
-    page_icon="💓",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -345,8 +344,8 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name="Sheet1") -> bytes:
 # ─────────────────────────────────────────────
 # ── UI ──
 # ─────────────────────────────────────────────
-st.title("💓 심박수 & 기온 분석 대시보드")
-st.markdown("##### 한파 리빙랩 · 활동 시간대별 심박수 및 실외 기온 변화 자동 분석")
+st.title("심박수 & 기온 분석 대시보드")
+st.markdown("#####  과제명: 시민참여형 적응 최적화를 위한 시민 〮사회 〮경제 〮환경 데이터 분석을 통한 정책평가기술 개발")
 
 st.markdown("#### 📂 데이터 업로드")
 uploaded_file = st.file_uploader(
@@ -367,7 +366,7 @@ if uploaded_file is None:
 | `name` | 참여자 이름 |
 | `time` | 측정 시각 (`HH:MM`) |
 | `HR` | 심박수 |
-| `HR_편차` | 심박수 편차 (선택) |
+| `HR_편차` | 심박수 편차 |
 | `AWS 기온`, `현장 기온` | 기온 관련 (선택) |
 | `AWS 습도`, `현장 습도` | 습도 관련 (선택) |
 """)
