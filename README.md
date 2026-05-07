@@ -1,8 +1,15 @@
 # HR-Temperature-Analyzer
 폭염/한파 리빙랩 심박수 및 기온 분석 대시보드
 
-# Requirements
-- streamlit
-- pandas
-- plotly
-- openpyxl
+# 한파 리빙랩 심박수 분석 대시보드
+
+# 설명
+한파/폭염 리빙랩 실험 후, 시간대별 심박수 및 실외 기온 변화를 분석합니다.
+
+# 사용 방법
+1. 데이터 업로드
+2. 필터 선택
+3. 결과 다운로드
+
+# 필요 패키지
+requirements.txt 참조
