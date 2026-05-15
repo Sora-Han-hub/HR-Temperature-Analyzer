@@ -73,13 +73,24 @@ def preprocess(df: pd.DataFrame):
         if c and c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # 2. 필터링: HR > 0
+    # 2. 필수 변수만 필터링 (핵심 변수)
     mask = df[col_hr] > 0
+
+    # AWS 기온/습도 필터
+    if col_aws_t and col_aws_t in df.columns:
+        mask &= df[col_aws_t].notna()
+    if col_aws_h and col_aws_h in df.columns:
+        mask &= df[col_aws_h].notna()
+
+    # 워치 센서 필터 추가 (R 코드와 동일)
+    if col_watch_amb and col_watch_amb in df.columns:
+        mask &= df[col_watch_amb].notna()
+    if col_watch_obj and col_watch_obj in df.columns:
+        mask &= df[col_watch_obj].notna()
+
     df = df[mask].copy()
     
-    # "미참여" 제외 전처리 (수정사항 2A)
-    if col_name and col_name in df.columns:
-        df = df[df[col_name].astype(str).str.strip() != "미참여"].copy()
+
 
     # 3. 시간 변수 파싱
     time_str = df[col_time].astype(str).str.extract(r'(\d{1,2}:\d{2})')[0].fillna("00:00")
@@ -123,6 +134,8 @@ def make_time_table(df, meta):
         (meta.get("col_aws_h"), "평균 AWS 습도"),
         (meta.get("col_field_t"), "평균 현장 기온"),
         (meta.get("col_field_h"), "평균 현장 습도"),
+        (meta.get("col_watch_amb"), "평균 워치 ambient 온도"),
+        (meta.get("col_watch_obj"), "평균 워치 object 온도"),
     ]
     
     for c, new_name in col_mappings:
@@ -133,14 +146,21 @@ def make_time_table(df, meta):
     if not agg_dict:
         return pd.DataFrame()
         
-    res = df_temp.groupby("time_str").agg(agg_dict).reset_index()
-    res.rename(columns={"time_str": "시간"}, inplace=True)
+    grp_cols = []
+    if meta.get("col_sojok") and meta.get("col_sojok") in df_temp.columns:
+        grp_cols.append(meta.get("col_sojok"))
+    grp_cols.append("time_str")
+        
+    res = df_temp.groupby(grp_cols).agg(agg_dict).reset_index()
+    
+    rename_cols["time_str"] = "시간"
+    if meta.get("col_sojok") and meta.get("col_sojok") in res.columns:
+        rename_cols[meta.get("col_sojok")] = "소속기관"
+    
     res.rename(columns=rename_cols, inplace=True)
     
-    num_cols = [c for c in res.columns if c != "시간"]
-    res[num_cols] = res[num_cols].round(1)
-    
-    res.sort_values("시간", inplace=True)
+    sort_cols = ["소속기관", "시간"] if "소속기관" in res.columns else ["시간"]
+    res.sort_values(sort_cols, inplace=True)
     return res
 
 def make_date_table(df, meta):
@@ -157,6 +177,8 @@ def make_date_table(df, meta):
         (meta.get("col_aws_h"), "평균 AWS 습도"),
         (meta.get("col_field_t"), "평균 현장 기온"),
         (meta.get("col_field_h"), "평균 현장 습도"),
+        (meta.get("col_watch_amb"), "평균 워치 ambient 온도"),
+        (meta.get("col_watch_obj"), "평균 워치 object 온도"),
     ]
     
     for c, new_name in col_mappings:
@@ -167,18 +189,49 @@ def make_date_table(df, meta):
     if not agg_dict:
         return pd.DataFrame()
         
-    res = df.groupby(meta["col_datetime"]).agg(agg_dict).reset_index()
-    res.rename(columns={meta["col_datetime"]: "날짜 및 시간"}, inplace=True)
+    grp_cols = []
+    if meta.get("col_sojok") and meta.get("col_sojok") in df.columns:
+        grp_cols.append(meta.get("col_sojok"))
+    grp_cols.append(meta["col_datetime"])
+        
+    res = df.groupby(grp_cols).agg(agg_dict).reset_index()
+    
+    # 날짜/시간 분리 추가
+    if meta["col_datetime"] in res.columns:
+        datetime_col = res[meta["col_datetime"]]
+        
+        # datetime을 pandas datetime으로 변환
+        dt_series = pd.to_datetime(datetime_col, errors='coerce')
+        
+        # 날짜와 시간 분리
+        res["날짜"] = dt_series.dt.date
+        res["시간"] = dt_series.dt.strftime('%H:%M')  # HH:MM 형식
+        
+        # 원본 datetime 컬럼 제거
+        res.drop(columns=[meta["col_datetime"]], inplace=True)
+    
+    # 소속기관 컬럼명 변경
+    if meta.get("col_sojok") and meta.get("col_sojok") in res.columns:
+        res.rename(columns={meta.get("col_sojok"): "소속기관"}, inplace=True)
+        
+    # 센서 변수 한글명으로 변경 (기존 기능 유지)
     res.rename(columns=rename_cols, inplace=True)
     
-    try:
-        res["_sort_key"] = pd.to_datetime(res["날짜 및 시간"], errors="coerce")
-        res.sort_values("_sort_key", inplace=True)
-        res.drop(columns=["_sort_key"], inplace=True)
-    except:
-        res.sort_values("날짜 및 시간", inplace=True)
-        
-    num_cols = [c for c in res.columns if c != "날짜 및 시간"]
+    # 컬럼 순서 조정: 소속기관 (있으면) → 날짜 → 시간 → 나머지
+    if "소속기관" in res.columns:
+        first_cols = ["소속기관", "날짜", "시간"]
+    else:
+        first_cols = ["날짜", "시간"]
+    
+    other_cols = [c for c in res.columns if c not in first_cols]
+    res = res[first_cols + other_cols]
+    
+    # 정렬
+    sort_cols = ["소속기관", "날짜", "시간"] if "소속기관" in res.columns else ["날짜", "시간"]
+    res.sort_values(sort_cols, inplace=True)
+    
+    # 숫자 컬럼 반올림
+    num_cols = [c for c in res.columns if c not in ["소속기관", "날짜", "시간"]]
     res[num_cols] = res[num_cols].round(1)
     
     return res
@@ -345,7 +398,7 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name="Sheet1") -> bytes:
 # ── UI ──
 # ─────────────────────────────────────────────
 st.title("심박수 & 기온 분석 대시보드")
-st.markdown("#####  시민참여형 적응 최적화를 위한 시민/사회/경제/환경 데이터 분석을 통한 정책평가기술 개발")
+st.markdown("#####  과제명: 시민참여형 적응 최적화를 위한 시민/사회/경제/환경 데이터 분석을 통한 정책평가기술 개발")
 
 st.markdown("#### 📂 데이터 업로드")
 uploaded_file = st.file_uploader(
@@ -362,12 +415,14 @@ if uploaded_file is None:
 | 컬럼명 | 설명 |
 |---|---|
 | `device.id` | 기기 식별자 |
-| `소속기관` | 기관명 (그룹 기준) |
+| `소속기관` | 기관명 |
 | `name` | 참여자 이름 |
+| `date` | 측정 날짜 |
 | `time` | 측정 시각 (`HH:MM`) |
+| `datetime` | 측정 일시 |
 | `HR` | 심박수 |
-| `HR_편차` | 심박수 편차 |
-| `AWS 기온`, `현장 기온` | 기온 관련 (선택) |
+| `HR_편차` | 심박수 편차 (심박수 하위 10% - 심박수) |
+| `AWS 기온`, `현장 기온`, `워치 ambient_temp`, `워치 object_temp` | 기온 관련 (선택) |
 | `AWS 습도`, `현장 습도` | 습도 관련 (선택) |
 """)
     st.stop()
@@ -391,7 +446,7 @@ except Exception as e:
 
 st.divider()
 
-# ── 🔍 데이터 필터 (수정사항 1, 2)
+
 st.markdown("#### 🔍 데이터 필터")
 
 # (추가 수정) 시간 필터 배경색 통일성 부여
@@ -442,15 +497,7 @@ with f5:
 # ── 데이터 필터 적용 (수정사항 2B)
 filtered_df = df.copy()
 
-if start_time and end_time:
-    if start_time <= end_time:
-        filtered_df = filtered_df[(filtered_df["virtual_time"] >= start_time) & (filtered_df["virtual_time"] <= end_time)]
-    else:
-        # 밤샘 로직 처리
-        filtered_df = filtered_df[(filtered_df["virtual_time"] >= start_time) | (filtered_df["virtual_time"] <= end_time)]
-        # 자정을 넘긴 시간대는 하루 뒤로 미루기 (그래프 X축 정렬용)
-        mask_next_day = filtered_df["virtual_time"] <= end_time
-        filtered_df.loc[mask_next_day, "virtual_datetime"] += pd.Timedelta(days=1)
+
 
 if sel_devices:
     filtered_df = filtered_df[filtered_df[meta["col_device"]].isin(sel_devices)]
@@ -501,6 +548,8 @@ with c4:
 
 st.divider()
 
+
+
 # ── 📈 시각화 (수정사항 1, 3, 4)
 st.markdown("#### 📈 시각화")
 
@@ -540,6 +589,10 @@ else:
     if sel_temp:
         rename_map[sel_temp] = "Temperature"
     df_bytime.rename(columns=rename_map, inplace=True)
+    
+    # 마지막 단계에서 반올림
+    num_cols_bytime = [c for c in df_bytime.columns if c not in grp_cols]
+    df_bytime[num_cols_bytime] = df_bytime[num_cols_bytime].round(1)
 
     # 리본(오차범위)을 정확하고 넓게 그리기 위해 개인 원본 데이터에서 직접 평균/표준편차 계산
     agg_kws_grand = dict(
@@ -551,6 +604,10 @@ else:
         
     df_grand = filtered_df.groupby("virtual_datetime").agg(**agg_kws_grand).reset_index()
     df_grand["Total_HR_std"] = df_grand["Total_HR_std"].fillna(0)
+    
+    # 마지막 단계에서 반올림
+    num_cols_grand = [c for c in df_grand.columns if c != "virtual_datetime"]
+    df_grand[num_cols_grand] = df_grand[num_cols_grand].round(1)
 
 
 meta_fig = meta.copy()
@@ -571,6 +628,10 @@ st.caption("※ 이 표는 업로드된 전체 데이터 기준입니다 (필터
 
 # 필터가 적용되지 않은 원본 df 전체 사용 (수정사항 5)
 df_by_time = make_time_table(df, meta)
+if not df_by_time.empty:
+    num_cols_time = [c for c in df_by_time.columns if c not in ["시간", "소속기관"]]
+    df_by_time[num_cols_time] = df_by_time[num_cols_time].round(1)
+
 df_by_date = make_date_table(df, meta)
 
 tab1, tab2 = st.tabs(["📋 시간별 분석", "📋 날짜별 분석"])
